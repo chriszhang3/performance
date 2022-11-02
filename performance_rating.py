@@ -15,12 +15,14 @@ def get_elo_difference(score, num_games):
     return -400 * math.log10(1 / p - 1)
 
 def compute_performance_rating(games_list, username, num_games):
-    if len(games_list) < num_games:
-        print("Warning: Not enough games")
+    if not games_list:
+        print("No games")
+        return
     score = 0
     results = []
     total_rating = 0
-    for game in games_list[:num_games]:
+    recent_games = games_list[:num_games]
+    for game in recent_games:
         white = game['white']
         black = game['black']
         if white['username'] == username:
@@ -34,11 +36,12 @@ def compute_performance_rating(games_list, username, num_games):
                 score += 1
         elif result in ['stalemate', 'repetition']:
                 score += 0.5
-    
-    print(f"Score: {score:g} / {num_games}")
+
+    N = len(recent_games)
+    print(f"Score: {score:g} / {N}")
     # print(f"Average rating of opponents: {total_rating / num_games:.0f}")
-    performance_rating = total_rating / num_games \
-                         + get_elo_difference(score, num_games)
+    performance_rating = total_rating / N \
+                         + get_elo_difference(score, N)
     print(f"Performance rating: {performance_rating:.0f}")
 
 async def get_games(session, username, month, year):
