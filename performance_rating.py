@@ -1,16 +1,9 @@
-import json
 import math
 import argparse
-from enum import Enum
 from collections import defaultdict
 from datetime import date
-from dateutil import relativedelta
-import requests
-
-class TimeControl(Enum):
-    RAPID = 'rapid'
-    BLITZ = 'blitz'
-    BULLET = 'bullet'
+import asyncio
+import aiohttp
 
 def get_elo_difference(score, num_games):
     if score == 0:
@@ -23,7 +16,7 @@ def get_elo_difference(score, num_games):
 
 def compute_performance_rating(games_list, username, num_games):
     if len(games_list) < num_games:
-        raise Exception("Not enough games.")
+        print("Warning: Not enough games")
     score = 0
     results = []
     total_rating = 0
@@ -48,16 +41,17 @@ def compute_performance_rating(games_list, username, num_games):
                          + get_elo_difference(score, num_games)
     print(f"Performance rating: {performance_rating:.0f}")
 
-def populate_games(username, month, year, games_list):
+async def get_games(session, username, month, year):
     url = f"https://api.chess.com/pub/player/{username}/games/{year}/{month:02d}"
-    text = requests.get(url).text
-    games = json.loads(text)['games']
-    if year < 2000:
-        raise Exception("Too far in the past.")
-    for g in games[::-1]:
-        games_list[TimeControl(g['time_class'])].append(g)
+    async with session.get(url) as response:
+        json = await response.json()
+        return json['games']
 
-def main():
+async def get_stats(session, url):
+    async with session.get(url) as response:
+        return await response.json()
+
+async def main():
     parser = argparse.ArgumentParser(
         description='Compute the performance rating of a Chess.com account using the public API.'
     )
@@ -72,23 +66,24 @@ def main():
     date_time = date.today()
     games_list = defaultdict(list)
 
-    while len(games_list[TimeControl.RAPID]) < num_games \
-          or len(games_list[TimeControl.BLITZ]) < num_games \
-          or len(games_list[TimeControl.BULLET]) < num_games:
-        year = date_time.year
-        month = date_time.month
-        populate_games(username, month, year, games_list)
-        date_time = date_time - relativedelta.relativedelta(months=1)
-    
-    url = f"https://api.chess.com/pub/player/{username}/stats"
-    text = requests.get(url).text
-    stats = json.loads(text)
+    six_months = [(date_time.month - i) % 12 for i in range(6)]
+    async with aiohttp.ClientSession() as session:
+        tasks = [get_games(session, username, month, date_time.year)
+                 for month in six_months]
+        tasks.append(get_stats(session, f"https://api.chess.com/pub/player/{username}/stats"))
+        games = await asyncio.gather(*tasks)
+
+    stats = games.pop()
+    for games_month in games:
+        for g in games_month[::-1]:
+            games_list[g['time_class']].append(g)
 
     print()
-    for tc in TimeControl:
-        rating = stats['chess_'+tc.value]['last']['rating']
-        print(f"{tc.value.capitalize()} rating: {rating}")
+    for tc in ['rapid', 'blitz', 'bullet']:
+        rating = stats['chess_'+tc]['last']['rating']
+        print(f"{tc.capitalize()} rating: {rating}")
         compute_performance_rating(games_list[tc], username, num_games)
         print()
 
-main()
+if __name__=='__main__':
+    asyncio.run(main())
