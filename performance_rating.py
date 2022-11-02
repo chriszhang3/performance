@@ -48,11 +48,16 @@ async def get_games(session, username, month, year):
     url = f"https://api.chess.com/pub/player/{username}/games/{year}/{month:02d}"
     async with session.get(url) as response:
         json = await response.json()
+        if 'code' in json and json['code'] == 0:
+            exit("User does not exist.")
         return json['games']
 
 async def get_stats(session, url):
     async with session.get(url) as response:
-        return await response.json()
+        json = await response.json()
+        if 'code' in json and json['code'] == 0:
+            exit("User does not exist.")
+        return json
 
 async def main():
     parser = argparse.ArgumentParser(
@@ -69,7 +74,7 @@ async def main():
     date_time = date.today()
     games_list = defaultdict(list)
 
-    six_months = [(date_time.month - i) % 12 for i in range(6)]
+    six_months = [(date_time.month - i) % 12 for i in range(3)]
     async with aiohttp.ClientSession() as session:
         tasks = [get_games(session, username, month, date_time.year)
                  for month in six_months]
