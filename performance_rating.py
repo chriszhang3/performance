@@ -67,6 +67,8 @@ async def main():
                         help='username of the Chess.com account')
     parser.add_argument('--games', type=int, default=20, metavar='G',
                         help='your performance rating based on your last G games')
+    parser.add_argument('--months', type=int, default=6, metavar='M',
+                        help='use games from the last M months')
     args = parser.parse_args()
     num_games = args.games
     username = args.username
@@ -74,7 +76,7 @@ async def main():
     date_time = date.today()
     games_list = defaultdict(list)
 
-    six_months = [(date_time.month - i) % 12 for i in range(3)]
+    six_months = [(date_time.month - i) % 12 for i in range(args.months)]
     async with aiohttp.ClientSession() as session:
         tasks = [get_games(session, username, month, date_time.year)
                  for month in six_months]
