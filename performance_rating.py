@@ -3,6 +3,7 @@ import argparse
 from collections import defaultdict
 from datetime import date
 import asyncio
+import time
 import aiohttp
 
 def get_elo_difference(score, num_games):
@@ -44,20 +45,29 @@ def compute_performance_rating(games_list, username, num_games):
                          + get_elo_difference(score, N)
     print(f"Performance rating: {performance_rating:.0f}")
 
-async def get_games(session, username, month, year):
-    url = f"https://api.chess.com/pub/player/{username}/games/{year}/{month:02d}"
-    async with session.get(url) as response:
-        json = await response.json()
-        if 'code' in json and json['code'] == 0:
-            exit("User does not exist.")
-        return json['games']
+def generate_url(username, month, year):
+    return f"https://api.chess.com/pub/player/{username}/games/{year}/{month:02d}"
 
-async def get_stats(session, url):
-    async with session.get(url) as response:
-        json = await response.json()
-        if 'code' in json and json['code'] == 0:
-            exit("User does not exist.")
-        return json
+async def async_get(session: aiohttp.ClientSession, url):
+    json = None
+    while json is None:
+        async with session.get(url) as response:
+            try:
+                json = await response.json()
+            except aiohttp.ContentTypeError:
+                # We can retry these after all the responses are received.
+                print(response)
+                time.sleep(1)
+                exit(1)
+
+            if 'code' in json and json['code'] == 0:
+                message = json['message']
+                if "not found" in message:
+                    exit("User not found.")
+                else:
+                    print(f"Error response from Chess.com: {json}")
+                    exit(json['message'])
+    return json
 
 async def main():
     parser = argparse.ArgumentParser(
@@ -78,14 +88,14 @@ async def main():
 
     six_months = [(date_time.month - i) % 12 for i in range(args.months)]
     async with aiohttp.ClientSession() as session:
-        tasks = [get_games(session, username, month, date_time.year)
+        tasks = [async_get(session, generate_url(username, month, date_time.year))
                  for month in six_months]
-        tasks.append(get_stats(session, f"https://api.chess.com/pub/player/{username}/stats"))
+        tasks.append(async_get(session, f"https://api.chess.com/pub/player/{username}/stats"))
         games = await asyncio.gather(*tasks)
 
     stats = games.pop()
     for games_month in games:
-        for g in games_month[::-1]:
+        for g in games_month['games'][::-1]:
             games_list[g['time_class']].append(g)
 
     print()
